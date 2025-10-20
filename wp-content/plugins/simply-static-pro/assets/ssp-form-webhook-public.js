@@ -8,11 +8,42 @@ if (null !== form_config_element) {
     let config_url = window.location.origin + config_path + 'forms.json';
 
     function submitForm(url, settings, data) {
-        // Send data via fetch to URL
-        fetch(url, {
+        // Prepare data for request.
+        let requestData = {
             method: "POST",
             body: data
-        }).then(response => {
+        };
+
+        // Maybe add custom header.
+        if (settings.form_custom_headers) {
+            // Parse if multiple headers are present.
+            if (settings.form_custom_headers.includes(',')) {
+                // Split arguments by ,
+                let headersData = settings.form_custom_headers.split(',');
+                let headers = {};
+
+                // Build the headers object.
+                headersData.forEach((header) => {
+                    // Split header by :
+                    let header_parts = header.split(':');
+                    // Add header to request
+                    headers[header_parts[0]] = header_parts[1];
+                });
+
+                // Pass the header to the request.
+                requestData.headers = headers;
+            } else {
+                // Split header by :
+                let header_parts = settings.form_custom_headers.split(':');
+                // Add header to request
+                requestData.headers = {
+                    [header_parts[0]]: header_parts[1]
+                };
+            }
+        }
+
+        // Send data via fetch to URL
+        fetch(url, requestData).then(response => {
             if (response.ok) {
                 handleMessage(settings);
             }
@@ -36,8 +67,6 @@ if (null !== form_config_element) {
             .then(json => {
                 let settings = json.find(x => x.form_id === form_id);
 
-                console.log(settings);
-
                 if (settings) {
                     let data = new FormData(form);
                     submitForm(settings.form_webhook, settings, data);
@@ -51,7 +80,7 @@ if (null !== form_config_element) {
     function handleMessage(settings, error = false) {
         if (settings.form_use_redirect) {
             window.location.replace(settings.form_redirect_url);
-        } else {
+        } else if (!settings.form_disable_feedback) {
             // Set up success message.
             const message = document.createElement('div');
 
@@ -63,28 +92,108 @@ if (null !== form_config_element) {
                 message.style.cssText = 'width: 100%; background-color: #58b348; color: white; text-align: center; padding: 10px;';
             }
 
-            // Append success message to form.
+            // Get the current form element.
             let form = document.getElementById(settings.form_id);
 
-            form.appendChild(message);
+            // Check if Elementor form.
+            if (settings.form_plugin === 'elementor_forms') {
+                let inputs = document.getElementsByTagName('input');
+
+                for (let i = 0; i < inputs.length; i++) {
+                    if (inputs[i].value === settings.form_id) {
+                        form = inputs[i].parentNode;
+                    }
+                }
+            }
 
             // Adjust the form output depending on the plugin.
             let spinner;
+            let submitButton;
 
             switch (settings.form_plugin) {
                 case 'cf7':
                     spinner = document.querySelector('.wpcf7-spinner');
-                    spinner.style.display = 'none';
+                    submitButton = form.querySelector('input[type="submit"]');
+
+                    if (spinner) {
+                        spinner.style.display = 'none';
+                    }
+
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                    }
                     break;
                 case 'elementor_forms':
                     spinner = document.querySelector('.elementor-message');
-                    spinner.style.display = 'none';
+                    submitButton = form.querySelector('button[type="submit"]');
+
+                    if (spinner) {
+                        spinner.style.display = 'none';
+                    }
+
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                    }
+                    break;
+                case 'bricks_forms':
+                    spinner = document.querySelector('.loading');
+                    submitButton = form.querySelector('button[type="submit"]');
+
+                    if (spinner) {
+                        spinner.style.display = 'none';
+                    }
+
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                    }
                     break;
                 case 'gravity_forms':
                     spinner = document.querySelector('.gform-loader');
-                    spinner.style.display = 'none';
+                    submitButton = form.querySelector('input[type="submit"]');
+
+                    if (spinner) {
+                        spinner.style.display = 'none';
+                    }
+
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                    }
+                    break;
+                case 'wpforms':
+                    spinner = document.querySelector('.wpforms-submit-spinner');
+                    submitButton = form.querySelector('button[type="submit"]');
+
+                    if (spinner) {
+                        spinner.style.display = 'none';
+                    }
+
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                    }
+                    break;
+                case 'wsf_form':
+                    submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
+
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                    }
+                    break;
+                case 'fluent_forms':
+                    spinner = document.querySelector('.ff-loading-bar');
+                    submitButton = form.querySelector('button[type="submit"]');
+
+                    if (spinner) {
+                        spinner.style.display = 'none';
+                    }
+
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                    }
                     break;
             }
+
+            // Append success message to form.
+            form.appendChild(message);
 
             setTimeout(() => {
                 message.remove();
@@ -101,7 +210,7 @@ if (null !== form_config_element) {
 
     document.addEventListener("DOMContentLoaded", function () {
         const allForms = document.querySelectorAll(
-            ".wpcf7 form, .wpcf7-form, .gform_wrapper form, .wpforms-container form, .elementor-form, .wsf-form, .frm-fluent-form"
+            ".wpcf7 form, .wpcf7-form, .gform_wrapper form, .wpforms-container form, .elementor-form, .wsf-form, .frm-fluent-form, .brxe-form, .brxe-brf-pro-forms"
         );
 
         allForms.forEach((form) => {
@@ -116,6 +225,18 @@ if (null !== form_config_element) {
                     input.required = true;
                 }
             });
+
+            // Prevent Gravity Forms from submitting without submit event.
+            if (typeof gform != "undefined") {
+                gform.utils.addAsyncFilter('gform/submission/pre_submission', async (data) => {
+                    data.abort = true;
+
+                    // Trigger submit event
+                    form.dispatchEvent(new Event('submit'));
+
+                    return data;
+                });
+            }
 
             form.addEventListener("submit", function (el) {
                 el.preventDefault();
@@ -140,6 +261,12 @@ if (null !== form_config_element) {
                 } else if (form.className.includes('elementor-form')) {
                     // Check if its Elementor Forms.
                     form_id = form.querySelector("[name='form_id']").value;
+                } else if (form.className.includes('brxe-form')) {
+                    // Check if its Bricks Forms.
+                    form_id = form.getAttribute('id');
+                } else if (form.className.includes('brxe-brf-pro-forms')) {
+                    // Check if its Bricks Forms.
+                    form_id = form.getAttribute('id');
                 }
 
                 // Manage and submit form.
